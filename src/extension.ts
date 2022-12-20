@@ -45,8 +45,9 @@ export class RunBackendExtension
     const panel = this.panel
     const notebook = panel.content
     const cell_id = notebook.activeCell.model.id
+    const cell_index = notebook.activeCellIndex
     const kernel_id = panel.sessionContext.session.kernel.id
     const path = panel.sessionContext.path
-    await execute_cell(path, cell_id, kernel_id)
+    await execute_cell(path, cell_id, cell_index, kernel_id, notebook)
   }
 }

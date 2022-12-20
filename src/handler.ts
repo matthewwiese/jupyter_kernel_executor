@@ -44,11 +44,40 @@ async function requestAPI<T>(
   return data;
 }
 
+export async function watchExecuteStatus(kernel_id: string, cell_id: string, cell_index: number, notebook: any) {
+  const execute_status = await requestAPI<any>(
+    `${kernel_id}/execute`,
+    { method: `GET` }
+  )
+  for (const cell_status of execute_status) {
+    // Does this object correspond to our executed cell?
+    if (cell_status.cell_id === cell_id) {
+      const exec_count = cell_status.execution_count;
+
+      notebook.activeCell.inputArea.promptNode.innerText = `[${exec_count === null ? '*' : exec_count}]:`;
+
+      notebook.activeCell.outputArea.node.innerHTML = `
+        <div class="lm-Widget p-Widget lm-Panel p-Panel jp-OutputArea-child"><div class="lm-Widget p-Widget jp-OutputPrompt jp-OutputArea-prompt"></div><div class="lm-Widget p-Widget jp-RenderedText jp-mod-trusted jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stdout">
+        <pre>${cell_status.output.trim()}</pre>
+        </div></div>
+      `;
+
+      if (exec_count === null) {
+        // NOTE: Manage timeout duration in user config?
+        setTimeout(() => watchExecuteStatus(kernel_id, cell_id, cell_index, notebook), 2000)
+      } else {
+        return {};
+      }
+    }
+  }
+}
 
 export async function execute_cell<T>(
   notebook_path: string,
   cell_id: string,
-  kernel_id: string
+  cell_index: number,
+  kernel_id: string,
+  notebook: any
 ): Promise<T> {
   const body = JSON.stringify(
     {
@@ -63,5 +92,8 @@ export async function execute_cell<T>(
       "method": "POST",
     })
   console.log(data)
+
+  watchExecuteStatus(kernel_id, cell_id, cell_index, notebook)
+
   return data;
 }

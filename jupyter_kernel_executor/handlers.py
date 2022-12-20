@@ -57,6 +57,17 @@ class ExecuteCellHandler(APIHandler):
 
         return {"Authorization": f"token {provider.token}"}
 
+    def update_execute_result(self, result, kernel_id, cell_id, finished = False):
+        print(f"=== RESULT ===")
+        print(result)
+        print(f"=== EXECUTING CELL ===")
+        print(self.executing_cell)
+        for rec in self.executing_cell[kernel_id]:
+            if rec['cell_id'] == cell_id:
+                rec['execution_count'] = result['execution_count'] if finished else None
+                output = ''.join([output.text for output in result['outputs']])
+                rec['output'] = output
+
     @tornado.web.authenticated
     async def get(self, kernel_id):
         if not self.kernel_manager.get_kernel(kernel_id):
@@ -67,6 +78,8 @@ class ExecuteCellHandler(APIHandler):
             {
                 "path": await self.get_path(record['document_id']),
                 "cell_id": record['cell_id'],
+                "execution_count": record['execution_count'],
+                "output": record['output'],
             } for record in records
         ]
 
@@ -142,7 +155,9 @@ class ExecuteCellHandler(APIHandler):
 
             async def write_callback():
                 try:
-                    await self.write_output(document_id, cell_id, client.get_result())
+                    result = client.get_result()
+                    self.update_execute_result(result, kernel_id, cell_id)
+                    await self.write_output(document_id, cell_id, result)
                 except Exception as e:
                     self.log.error('Exception when asynchronous writing result to file')
                     self.log.exception(e)
@@ -171,6 +186,7 @@ class ExecuteCellHandler(APIHandler):
         finally:
             await self.post_execute(kernel_id, document_id, cell_id)
         self.log.debug(f'execute time: {self.execution_end_datetime - self.execution_start_datetime}')
+        self.update_execute_result(result, kernel_id, cell_id, finished = True)
         return result
 
     async def pre_execute(self, kernel_id, document_id, cell_id):
@@ -196,7 +212,9 @@ class ExecuteCellHandler(APIHandler):
     def get_record(self, document_id, cell_id):
         return {
             'document_id': document_id,
-            'cell_id': cell_id
+            'cell_id': cell_id,
+            'output': '',
+            'execution_count': None
         }
 
     async def read_code_from_ipynb(self, document_id, cell_id) -> Optional[str]:
