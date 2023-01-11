@@ -1,5 +1,7 @@
 import {URLExt} from '@jupyterlab/coreutils';
 import {ServerConnection} from '@jupyterlab/services';
+import * as nbformat from '@jupyterlab/nbformat';
+import { CodeCellModel } from '@jupyterlab/cells';
 
 /**
  * Call the API extension
@@ -56,11 +58,15 @@ export async function watchExecuteStatus(kernel_id: string, cell_id: string, cel
 
       notebook.activeCell.inputArea.promptNode.innerText = `[${exec_count === null ? '*' : exec_count}]:`;
 
-      notebook.activeCell.outputArea.node.innerHTML = `
-        <div class="lm-Widget p-Widget lm-Panel p-Panel jp-OutputArea-child"><div class="lm-Widget p-Widget jp-OutputPrompt jp-OutputArea-prompt"></div><div class="lm-Widget p-Widget jp-RenderedText jp-mod-trusted jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stdout">
-        <pre>${cell_status.output.trim()}</pre>
-        </div></div>
-      `;
+      const cell_result_data = {
+        output_type: 'display_data',
+        data: { 'text/plain': cell_status.output.trim() },
+        metadata: {}
+      } as nbformat.IDisplayData;
+      const active_cell_model = (notebook.activeCell.model as CodeCellModel);
+      active_cell_model.outputs.length === 1
+        ? active_cell_model.outputs.add(cell_result_data)
+        : active_cell_model.outputs.set(0, cell_result_data);
 
       if (exec_count === null) {
         // NOTE: Manage timeout duration in user config?
