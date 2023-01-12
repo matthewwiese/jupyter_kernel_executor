@@ -1,7 +1,7 @@
 import {URLExt} from '@jupyterlab/coreutils';
 import {ServerConnection} from '@jupyterlab/services';
 import * as nbformat from '@jupyterlab/nbformat';
-import { CodeCellModel } from '@jupyterlab/cells';
+import { CodeCellModel, CodeCell } from '@jupyterlab/cells';
 
 /**
  * Call the API extension
@@ -102,4 +102,78 @@ export async function execute_cell<T>(
   watchExecuteStatus(kernel_id, cell_id, cell_index, notebook)
 
   return data;
+}
+
+export async function execute_cell_websocket<T>(
+  notebook_path: string,
+  cell_id: string,
+  cell_index: number,
+  kernel_id: string,
+  notebook: any
+): Promise<number> {
+  const settings = ServerConnection.makeSettings();
+  const requestUrl = URLExt.join(
+    settings.wsUrl,
+    'api/kernels',
+    `${kernel_id}/execute_websocket`
+  );
+
+  const ws = new WebSocket(requestUrl);
+
+  ws.onopen = function() {
+    ws.send(JSON.stringify({
+      meta: 'post',
+      payload: {
+        path: notebook_path,
+        cell_id: cell_id,
+        cell_index: cell_index,
+        kernel_id: kernel_id
+      }
+    }));
+    const code_cell = notebook.widgets[cell_index] as CodeCell;
+    code_cell.setPrompt('*');
+  };
+
+  ws.onmessage = function (evt) {
+    const data = JSON.parse(evt.data);
+    const meta = data.meta;
+    const payload = data.payload;
+    if (meta === 'post_result') {
+      ws.send(JSON.stringify({
+        meta: 'get',
+        payload: payload.model,
+      }))
+    } else if (meta === 'get') {
+      for (const record of payload) {
+        // TODO: Remove or integrate this
+        if (record.cell_id === cell_id) {
+          //const cell_result_data = {
+          //  output_type: 'display_data',
+          //  data: { 'text/plain': record.output },
+          //  metadata: {}
+          //} as nbformat.IDisplayData;
+          const active_cell_model = notebook.widgets[cell_index].model as CodeCellModel;
+          active_cell_model.executionCount = record.execution_count;
+          //if (active_cell_model.outputs.length !== 0)
+          //  active_cell_model.outputs.clear()
+          //active_cell_model.outputs.add(cell_result_data)
+        }
+
+        if (record.id === cell_id) {
+          const active_cell_model = notebook.widgets[cell_index].model as CodeCellModel;
+          active_cell_model.outputs.clear()
+          for (const output of record.outputs) {
+            const cell_result_data = {
+              output_type: 'display_data',
+              data: { 'text/plain': output.text },
+              metadata: {}
+            } as nbformat.IDisplayData;
+            active_cell_model.outputs.add(cell_result_data)
+          }
+        }
+      }
+    }
+  };
+
+  return new Promise<number>(resolve => resolve(1));
 }

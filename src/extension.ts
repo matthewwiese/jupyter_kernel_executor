@@ -6,8 +6,8 @@ import {
 import {DisposableDelegate, IDisposable} from '@lumino/disposable';
 import {ToolbarButton} from '@jupyterlab/apputils';
 import {JupyterFrontEnd} from '@jupyterlab/application';
-import {runIcon} from '@jupyterlab/ui-components';
-import {execute_cell} from "./handler";
+import { runIcon, terminalIcon } from '@jupyterlab/ui-components';
+import { execute_cell, execute_cell_websocket } from "./handler";
 
 export class RunBackendExtension
   implements DocumentRegistry.IWidgetExtension<NotebookPanel, INotebookModel> {
@@ -35,8 +35,17 @@ export class RunBackendExtension
     });
     panel.toolbar.insertItem(10, 'runFull', runBackendButton);
 
+    const testWebsocketButton = new ToolbarButton({
+      className: 'test-websocket-button',
+      icon: terminalIcon,
+      onClick: this.onClickWebsocket.bind(this),
+      tooltip: 'Test websocket echos'
+    });
+    panel.toolbar.insertItem(11, 'testWebsocket', testWebsocketButton);
+
     return new DisposableDelegate(() => {
       runBackendButton.dispose();
+      testWebsocketButton.dispose();
     });
   }
 
@@ -49,5 +58,15 @@ export class RunBackendExtension
     const kernel_id = panel.sessionContext.session.kernel.id
     const path = panel.sessionContext.path
     await execute_cell(path, cell_id, cell_index, kernel_id, notebook)
+  }
+
+  public async onClickWebsocket() {
+    const panel = this.panel
+    const notebook = panel.content
+    const cell_id = notebook.activeCell.model.id
+    const cell_index = notebook.activeCellIndex
+    const kernel_id = panel.sessionContext.session.kernel.id
+    const path = panel.sessionContext.path
+    await execute_cell_websocket(path, cell_id, cell_index, kernel_id, notebook);
   }
 }

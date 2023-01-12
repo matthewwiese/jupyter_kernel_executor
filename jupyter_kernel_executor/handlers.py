@@ -5,7 +5,8 @@ from typing import Optional, Dict, List
 from datetime import datetime
 
 import tornado.web
-from jupyter_server.base.handlers import APIHandler
+from tornado.websocket import WebSocketHandler
+from jupyter_server.base.handlers import APIHandler, JupyterHandler
 from jupyter_server.utils import ensure_async
 from watchfiles import awatch, Change
 
@@ -13,8 +14,7 @@ from jupyter_kernel_client.client import KernelWebsocketClient
 from jupyter_kernel_executor.file_watcher import FileWatcher
 from jupyter_kernel_executor.fileid import FileIDWrapper
 
-
-class ExecuteCellHandler(APIHandler):
+class ExecuteCellWebSocketHandler(WebSocketHandler, JupyterHandler):
     executing_cell: Dict[str, List[
         Dict[str, str]]
     ] = dict()
@@ -25,9 +25,6 @@ class ExecuteCellHandler(APIHandler):
         self.execution_end_datetime: Optional[datetime] = None
         self.watch_dir = self.normal_path(self.serverapp.root_dir or '.')
         self.global_watcher = FileWatcher(self.file_id_manager)
-
-    def finish(self, *args, **kwargs):
-        return super().finish(*args, **kwargs)
 
     @property
     def file_id_manager(self) -> FileIDWrapper:
@@ -58,18 +55,14 @@ class ExecuteCellHandler(APIHandler):
         return {"Authorization": f"token {provider.token}"}
 
     def update_execute_result(self, result, kernel_id, cell_id, finished = False):
-        print(f"=== RESULT ===")
-        print(result)
-        print(f"=== EXECUTING CELL ===")
-        print(self.executing_cell)
         for rec in self.executing_cell[kernel_id]:
             if rec['cell_id'] == cell_id:
                 rec['execution_count'] = result['execution_count'] if finished else None
                 output = ''.join([output.text for output in result['outputs']])
                 rec['output'] = output
 
-    @tornado.web.authenticated
-    async def get(self, kernel_id):
+    async def mimic_get(self, model):
+        kernel_id = model.get('kernel_id')
         if not self.kernel_manager.get_kernel(kernel_id):
             raise tornado.web.HTTPError(404, f"No such kernel {kernel_id}")
 
@@ -82,44 +75,32 @@ class ExecuteCellHandler(APIHandler):
                 "output": record['output'],
             } for record in records
         ]
-
-        await self.finish(json.dumps(
-            response
-        ))
+        return {
+            'meta': 'get',
+            'payload': response
+        }
 
     def is_executing(self, kernel_id, document_id, cell_id):
         return self.get_record(document_id, cell_id) in self.executing_cell.get(kernel_id, [])
 
-    @tornado.web.authenticated
-    async def post(self, kernel_id):
-        """
-        Json Body Required:
-            path(str): file path, When file_id_manager(jupyter_server_fileid) available,
-                       tracking path's file id automatically for remove or some other actions
-
-            cell_id(str):  cell to be executed
-            OR
-            code(str): just execute the code here
-
-        Optional:
-            block(bool): execute code sync or not, when path and cell_id available, default to False(not block)
-                         or True(execute code sync), when block is True, response result
-            not_write(bool): default to False, False means try to write result to document's cell
-
-        """
+    async def mimic_post(self, model):
+        kernel_id = model.get('kernel_id')
         if not self.kernel_manager.get_kernel(kernel_id):
             raise tornado.web.HTTPError(404, f"No such kernel {kernel_id}")
 
-        model = self.get_json_body()
         path = model.get('path')
         cell_id = model.get('cell_id')
         not_write = model.get('not_write', False)
         document_id = self.index(path)
         if self.is_executing(kernel_id, document_id, cell_id):
             self.log.info(f'cell {cell_id} of {path}(id:{document_id}) is executing')
-            return await self.finish(json.dumps(
-                model
-            ))
+            # TODO: Return most recent output?
+            return {
+                "meta": "executing",
+                "payload": {
+                    "model": model
+                }
+            }
 
         if model.get('block'):
             # from request, respect it
@@ -164,19 +145,26 @@ class ExecuteCellHandler(APIHandler):
 
             if not not_write:
                 client.register_callback(write_callback)
-            await self.finish(json.dumps(
-                model
-            ))
             await self.execute(client, code, document_id, cell_id)
+            return {
+                "meta": 'post',
+                "payload": {
+                    "model": model
+                }
+            }
         else:
             self.log.debug("sync execute code, return execution result in response")
             result = await self.execute(client, code, document_id, cell_id)
             if not not_write:
                 await self.write_output(document_id, cell_id, result)
-            await self.finish(json.dumps({
-                **model,
-                **result
-            }))
+            return {
+                "meta": 'post_block',
+                "payload": {
+                    # TODO: Implement this
+                    #"model": **model,
+                    #"result": **result
+                }
+            }
 
     async def execute(self, client, code, document_id, cell_id):
         kernel_id = client.kernel_id
@@ -250,6 +238,10 @@ class ExecuteCellHandler(APIHandler):
             if updated:
                 await ensure_async(cm.save(model, path))
                 self.file_id_manager.save(path)
+                self.write_message(json.dumps({
+                    "meta": "get",
+                    "payload": nb['cells']
+                }))
 
     def executing_document(self):
         executing_document = []
@@ -258,6 +250,33 @@ class ExecuteCellHandler(APIHandler):
                 executing_document.append(records['document_id'])
         return executing_document
 
+    @tornado.web.authenticated
+    def open(self, *args, **kwargs):
+        print(kwargs) # kernel_id from handler
+
+    @tornado.web.authenticated
+    async def on_message(self, message):
+        msg = json.loads(message)
+        print(msg)
+        if (msg['meta'] == 'post'):
+            res = await self.mimic_post(msg['payload'])
+            self.write_message(json.dumps({
+                "meta": "post_result",
+                "payload": res["payload"]
+            }))
+        elif (msg['meta'] == 'get'):
+            res = await self.mimic_get(msg['payload'])
+            self.write_message(json.dumps({
+                "meta": "get",
+                "payload": res["payload"]
+            }))
+
+    # TODO: Determine when to close connection
+    #self.close()
+
+    @tornado.web.authenticated
+    def on_close(self):
+        print("Closed")
 
 def setup_handlers(web_app):
     host_pattern = ".*$"
@@ -265,6 +284,7 @@ def setup_handlers(web_app):
     base_url = web_app.settings["base_url"].rstrip('/')
     _kernel_id_regex = r"(?P<kernel_id>\w+-\w+-\w+-\w+-\w+)"
     handlers = [
-        (rf"{base_url}/api/kernels/{_kernel_id_regex}/execute", ExecuteCellHandler),
+        #(rf"{base_url}/api/kernels/{_kernel_id_regex}/execute", ExecuteCellHandler),
+        (rf"{base_url}/api/kernels/{_kernel_id_regex}/execute_websocket", ExecuteCellWebSocketHandler),
     ]
     web_app.add_handlers(host_pattern, handlers)
