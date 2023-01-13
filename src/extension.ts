@@ -27,25 +27,25 @@ export class RunBackendExtension
     context: DocumentRegistry.IContext<INotebookModel>
   ): IDisposable {
     this.panel = panel;
-    const runBackendButton = new ToolbarButton({
-      className: 'run-backend-button',
+    //const runBackendButton = new ToolbarButton({
+    //  className: 'run-backend-button',
+    //  icon: runIcon,
+    //  onClick: this.onClick.bind(this),
+    //  tooltip: 'Run code in backend'
+    //});
+    //panel.toolbar.insertItem(10, 'runFull', runBackendButton);
+
+    const runBackendWebSocketButton = new ToolbarButton({
+      className: 'run-backend-websocket-button',
       icon: runIcon,
-      onClick: this.onClick.bind(this),
+      onClick: this.onClickWebsocket.bind(this),
       tooltip: 'Run code in backend'
     });
-    panel.toolbar.insertItem(10, 'runFull', runBackendButton);
-
-    const testWebsocketButton = new ToolbarButton({
-      className: 'test-websocket-button',
-      icon: terminalIcon,
-      onClick: this.onClickWebsocket.bind(this),
-      tooltip: 'Test websocket echos'
-    });
-    panel.toolbar.insertItem(11, 'testWebsocket', testWebsocketButton);
+    panel.toolbar.insertItem(10, 'runFullWebSocket', runBackendWebSocketButton);
 
     return new DisposableDelegate(() => {
-      runBackendButton.dispose();
-      testWebsocketButton.dispose();
+      //runBackendButton.dispose();
+      runBackendWebSocketButton.dispose();
     });
   }
 

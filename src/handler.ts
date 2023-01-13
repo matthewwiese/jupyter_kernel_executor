@@ -110,7 +110,7 @@ export async function execute_cell_websocket<T>(
   cell_index: number,
   kernel_id: string,
   notebook: any
-): Promise<number> {
+): Promise<T> {
   const settings = ServerConnection.makeSettings();
   const requestUrl = URLExt.join(
     settings.wsUrl,
@@ -138,42 +138,35 @@ export async function execute_cell_websocket<T>(
     const data = JSON.parse(evt.data);
     const meta = data.meta;
     const payload = data.payload;
-    if (meta === 'post_result') {
-      ws.send(JSON.stringify({
-        meta: 'get',
-        payload: payload.model,
-      }))
-    } else if (meta === 'get') {
-      for (const record of payload) {
-        // TODO: Remove or integrate this
-        if (record.cell_id === cell_id) {
-          //const cell_result_data = {
-          //  output_type: 'display_data',
-          //  data: { 'text/plain': record.output },
-          //  metadata: {}
-          //} as nbformat.IDisplayData;
-          const active_cell_model = notebook.widgets[cell_index].model as CodeCellModel;
-          active_cell_model.executionCount = record.execution_count;
-          //if (active_cell_model.outputs.length !== 0)
-          //  active_cell_model.outputs.clear()
-          //active_cell_model.outputs.add(cell_result_data)
-        }
-
-        if (record.id === cell_id) {
-          const active_cell_model = notebook.widgets[cell_index].model as CodeCellModel;
-          active_cell_model.outputs.clear()
-          for (const output of record.outputs) {
-            const cell_result_data = {
-              output_type: 'display_data',
-              data: { 'text/plain': output.text },
-              metadata: {}
-            } as nbformat.IDisplayData;
-            active_cell_model.outputs.add(cell_result_data)
+    switch (meta) {
+      case 'post_result':
+        ws.send(JSON.stringify({
+          meta: 'get',
+          payload: payload.model,
+        }));
+        break;
+      case 'get':
+        for (const record of payload) {
+          if (record.cell_id === cell_id) {
+            const code_cell_model = notebook.widgets[cell_index].model as CodeCellModel;
+            code_cell_model.executionCount = record.execution_count;
+          }
+          if (record.id === cell_id) {
+            const code_cell_model = notebook.widgets[cell_index].model as CodeCellModel;
+            code_cell_model.outputs.clear()
+            for (const output of record.outputs) {
+              const cell_result_data = {
+                output_type: 'display_data',
+                data: { 'text/plain': output.text },
+                metadata: {}
+              } as nbformat.IDisplayData;
+              code_cell_model.outputs.add(cell_result_data)
+            }
           }
         }
-      }
+        break;
     }
   };
 
-  return new Promise<number>(resolve => resolve(1));
+  return {} as T;
 }
