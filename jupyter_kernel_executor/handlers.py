@@ -4,10 +4,11 @@ import os
 from typing import Optional, Dict, List
 from datetime import datetime
 
-import tornado.web
+from tornado import web
 from tornado.websocket import WebSocketHandler
 from jupyter_server.base.handlers import APIHandler, JupyterHandler
 from jupyter_server.utils import ensure_async
+from jupyter_server.auth import authorized
 from watchfiles import awatch, Change
 
 from jupyter_kernel_client.client import KernelWebsocketClient
@@ -19,6 +20,7 @@ class ExecuteCellWebSocketHandler(WebSocketHandler, JupyterHandler):
         Dict[str, str]]
     ] = dict()
     save_lock = asyncio.Lock()
+    auth_resource = "execute_cell_websocket"
 
     def initialize(self):
         self.execution_start_datetime: Optional[datetime] = None
@@ -60,6 +62,12 @@ class ExecuteCellWebSocketHandler(WebSocketHandler, JupyterHandler):
                 rec['execution_count'] = result['execution_count'] if finished else None
                 output = ''.join([output.text for output in result['outputs']])
                 rec['output'] = output
+
+    @web.authenticated
+    @authorized
+    async def get(self, kernel_id, *args, **kwargs):
+        print("WEBSOCKET HTTP HANDSHAKE")
+        await super().get(*args, **kwargs)
 
     async def mimic_get(self, model):
         kernel_id = model.get('kernel_id')
@@ -250,11 +258,9 @@ class ExecuteCellWebSocketHandler(WebSocketHandler, JupyterHandler):
                 executing_document.append(records['document_id'])
         return executing_document
 
-    @tornado.web.authenticated
     def open(self, *args, **kwargs):
-        print(kwargs) # kernel_id from handler
+        print("WEBSOCKET CONNECTION OPENED")
 
-    @tornado.web.authenticated
     async def on_message(self, message):
         msg = json.loads(message)
         print(msg)
@@ -274,7 +280,6 @@ class ExecuteCellWebSocketHandler(WebSocketHandler, JupyterHandler):
     # TODO: Determine when to close connection
     #self.close()
 
-    @tornado.web.authenticated
     def on_close(self):
         print("Closed")
 
