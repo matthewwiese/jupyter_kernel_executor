@@ -6,7 +6,7 @@ import {
 import {DisposableDelegate, IDisposable} from '@lumino/disposable';
 import {ToolbarButton} from '@jupyterlab/apputils';
 import {JupyterFrontEnd} from '@jupyterlab/application';
-import { runIcon, terminalIcon } from '@jupyterlab/ui-components';
+import { runIcon } from '@jupyterlab/ui-components';
 import { execute_cell, execute_cell_websocket } from "./handler";
 
 export class RunBackendExtension
